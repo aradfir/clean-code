@@ -1,3 +1,6 @@
+from pip._internal import req
+
+
 @login_required
 @transaction.commit_on_success
 def create_w(request, id):
@@ -10,6 +13,7 @@ def create_w(request, id):
 def chunks(objects, length):  # Defining method with a generator in a loop.
     for i in xrange(0, len(objects), length):
         yield objects[i:i + length]
+
 
 def map_reduce_task(request, ids):
     registers = get_registers(request)
@@ -258,8 +262,7 @@ def create_payment(request):
             return response
 
 
-@staff_member_required
-def backup_to_csv(request):
+def initialize_data_dict():
     data = {}
     data['referral'] = ReferralPartner
     data['user'] = UserProfile
@@ -268,68 +271,47 @@ def backup_to_csv(request):
     data['policy'] = InsurancePolicy
     data['case'] = InsuranceCase
     data['additional'] = AdditionalData
-    cursor = connection.cursor()
-    cursor.execute('''SELECT insurance_policy.id AS Policy_number,
-                        insurance_policy.request_date AS Policy_date,
-                        user_profile.first_name AS First_name,
-                        user_profile.last_name AS Last_name,
-                        user_profile.email AS Email,
-                        insurance_policy.start_date AS Start_date,
-                        insurance_policy.expiration_date AS Expiration_date,
-                        insurance_policy.expiration_date - \
-                        insurance_policy.start_date AS Number_of_days,
-                        crypto_exchange.name AS Crypto_exchange_name,
-                        crypto_exchange.coverage_limit AS Limit_BTC,
-                        insurance_policy.cover AS Insured_Limit,
-                        insurance_policy.fee AS Premium_paid,
-                        user_payments.amount AS User_paid,
-                        user_payments.currency AS User_currency,
-                        crypto_exchange.rate AS Premium_rate,
-                        user_payments.update_date AS Premium_payment_date,
-                        insurance_case.loss_value AS Outstanding_claim_BTC,
-                        insurance_case.incident_date AS Date_of_claim,
-                        insurance_case.refund_paid AS Paid_claim_BTC,
-                        insurance_case.request_date AS Date_of_claim_payment,
-                        insurance_policy.status AS Insurance_policy_status,
-                        user_payments.status AS User_payments_status,
-                        insurance_case.status AS Insurance_case_status
-                        FROM insurance_policy
-                        LEFT JOIN user_profile ON user_profile.id = \
-                        insurance_policy.user
-                        LEFT JOIN crypto_exchange ON crypto_exchange.id = \
-                        insurance_policy.exchange
-                        LEFT JOIN user_payments ON user_payments.id = \
-                        insurance_policy.payment_id
-                        LEFT JOIN insurance_case ON \
-                        insurance_case.insurance = insurance_policy.id
-                        ''')
-    insurance_report = cursor.fetchall()
+    return data
 
+
+def read_insurance_report_from_database():
+    cursor = connection.cursor()
+    with open('backup_to_csv_query', 'r') as query_file:
+        cursor.execute("\n".join(query_file.readlines()))
+    return cursor.fetchall()
+
+
+def make_datasets_params(request):
+    datasets = {}
+    datasets['referral'] = not bool(request.GET.get('referral'))
+    datasets['user'] = not bool(request.GET.get('user'))
+    datasets['exchange'] = not bool(request.GET.get('exchange'))
+    datasets['payments'] = not bool(request.GET.get('payments'))
+    datasets['policy'] = not bool(request.GET.get('policy'))
+    datasets['case'] = not bool(request.GET.get('case'))
+    datasets['additional'] = not bool(request.GET.get('additional'))
+    return datasets
+
+
+@staff_member_required
+def backup_to_csv(request):
+    data = initialize_data_dict()
+    insurance_report = read_insurance_report_from_database()
     if request.method == 'GET':
-        datasets = {}
-        datasets['referral'] = not bool(request.GET.get('referral'))
-        datasets['user'] = not bool(request.GET.get('user'))
-        datasets['exchange'] = not bool(request.GET.get('exchange'))
-        datasets['payments'] = not bool(request.GET.get('payments'))
-        datasets['policy'] = not bool(request.GET.get('policy'))
-        datasets['case'] = not bool(request.GET.get('case'))
-        datasets['additional'] = not bool(request.GET.get('additional'))
+        datasets = make_datasets_params(request)
         response = HttpResponse(content_type='application/zip')
         response['Content-Disposition'] = 'attachment; filename=backup.csv.zip'
-        z = zipfile.ZipFile(response, 'w')
+        response_zip = zipfile.ZipFile(response, 'w')
         for key in datasets:
             if datasets[key] is True:
                 output = StringIO()
                 writer = csv.writer(output, dialect='excel')
                 query = data[key].objects.all().values()
                 if query.count() > 0:
-                    keys = list(query[0])
-                    writer.writerow(sorted(keys))
-                    for row in query:
-                        writer.writerow([row[k] for k in sorted(keys)])
+                    write_sorted_keys(query, writer)
                 else:
                     writer.writerow(['NULL TABLE'])
-                z.writestr("%s.csv" % key, output.getvalue())
+                response_zip.writestr("%s.csv" % key, output.getvalue())
 
         out = StringIO()
         writer = csv.writer(out)
@@ -347,13 +329,20 @@ def backup_to_csv(request):
         writer.writerow(header)
         for row in insurance_report:
             writer.writerow(row)
-        z.writestr("insurance_report.csv", out.getvalue())
+        response_zip.writestr("insurance_report.csv", out.getvalue())
         try:
-            if not z.testzip():
+            if not response_zip.testzip():
                 responseData = {'error': True, 'message': 'Nothing to backup'}
                 return JsonResponse(responseData)
         except Exception:
             return response
+
+
+def write_sorted_keys(query, writer):
+    keys = list(query[0])
+    writer.writerow(sorted(keys))
+    for row in query:
+        writer.writerow([row[k] for k in sorted(keys)])
 
 
 @csrf_protect
