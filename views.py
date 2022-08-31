@@ -53,15 +53,7 @@ def create_payment(request):
         if not payment:
             # everything is ok, new user
             # create payment with coinpayment
-            post_params = {
-                'amount': policy.fee,
-                'currency1': 'BTC',
-                'currency2': currency,
-                'buyer_email':
-                    request.user.email,  # TODO set request.user.mail,
-                'item_name': 'Policy for ' + policy.exchange.name,
-                'item_number': policy.id
-            }
+            post_params = create_btc_post_param_dict(currency, policy, request)
             try:
                 client = CryptoPayments(public_key, private_key)
                 transaction = client.createTransaction(post_params)
@@ -69,24 +61,11 @@ def create_payment(request):
                 if len(transaction) == 0:
                     raise Exception
             except Exception as e:
-                logger.error(e)
-                message = 'Payment gateway is down'
-                responseData = {'error': True, 'message': message}
-                return JsonResponse(responseData)
+                return create_gateway_down_response(e)
 
             try:
                 try:
-                    payment = UserPayments(
-                        status=0,
-                        update_date=datetime.datetime.now(),
-                        amount=transaction.amount,
-                        address=transaction.address,
-                        payment=transaction.txn_id,
-                        confirms_needed=transaction.confirms_needed,
-                        timeout=transaction.timeout,
-                        status_url=transaction.status_url,
-                        qrcode_url=transaction.qrcode_url,
-                        currency=currency)
+                    payment = make_paymet_record(currency, transaction)
 
                     try:
                         default_email = os.environ.get('DJANGO_EMAIL_DEFAULT_EMAIL')
@@ -117,37 +96,16 @@ def create_payment(request):
             # payment already exist
             if payment.status == PaymentStatus.ERROR:
                 logger.info('status Error, should create new')
-                post_params = {
-                    'amount': policy.fee,
-                    'currency1': 'BTC',
-                    'currency2': currency,
-                    'buyer_email':
-                        request.user.email,  # TODO set request.user.mail,
-                    'item_name': 'Policy for ' + policy.exchange.name,
-                    'item_number': policy.id
-                }
+                post_params = create_btc_post_param_dict(currency, policy, request)
 
                 try:
                     client = CryptoPayments(public_key, private_key)
                     transaction = client.createTransaction(post_params)
                 except Exception as e:
-                    logger.error(e)
-                    message = 'Payment gateway is down'
-                    responseData = {'error': True, 'message': message}
-                    return JsonResponse(responseData)
+                    return create_gateway_down_response(e)
 
                 try:
-                    payment = UserPayments(
-                        status=0,
-                        update_date=datetime.datetime.now(),
-                        amount=transaction.amount,
-                        address=transaction.address,
-                        payment=transaction.txn_id,
-                        confirms_needed=transaction.confirms_needed,
-                        timeout=transaction.timeout,
-                        status_url=transaction.status_url,
-                        qrcode_url=transaction.qrcode_url,
-                        currency=currency)
+                    payment = make_paymet_record(currency, transaction)
                     payment.save()
                     policy.payment_id = payment
                     policy.save()
@@ -181,6 +139,39 @@ def create_payment(request):
                 transaction = policy.payment_id
             response = create_post_params(currency, policy, transaction)
             return response
+
+
+def create_gateway_down_response(e):
+    logger.error(e)
+    message = 'Payment gateway is down'
+    responseData = {'error': True, 'message': message}
+    return JsonResponse(responseData)
+
+
+def create_btc_post_param_dict(currency, policy, request):
+    return {
+        'amount': policy.fee,
+        'currency1': 'BTC',
+        'currency2': currency,
+        'buyer_email':
+            request.user.email,  # TODO set request.user.mail,
+        'item_name': 'Policy for ' + policy.exchange.name,
+        'item_number': policy.id
+    }
+
+
+def make_paymet_record(currency, transaction):
+    return UserPayments(
+        status=0,
+        update_date=datetime.datetime.now(),
+        amount=transaction.amount,
+        address=transaction.address,
+        payment=transaction.txn_id,
+        confirms_needed=transaction.confirms_needed,
+        timeout=transaction.timeout,
+        status_url=transaction.status_url,
+        qrcode_url=transaction.qrcode_url,
+        currency=currency)
 
 
 def create_post_params(currency, policy, transaction):
