@@ -1,6 +1,5 @@
 ## JSONIC: the decorator
 class jsonic(object):
-    
     """ Relies on Python 2.7-ish string-encoding semantics; makes a whoooole lot
         of assumptions about naming, additional installed, apps, you name it –
         Also, it’s absolutely horrid. I hereby place it in the public domain.
@@ -32,10 +31,10 @@ class jsonic(object):
         
         Actual production code written by me, circa 2008. Yep.
     """
-    
+
     def __init__(self, *decorargs, **deckeywords):
         self.deckeywords = deckeywords
-    
+
     def __call__(self, fn):
         def jsoner(obj, **kwargs):
             dic = {}
@@ -43,25 +42,25 @@ class jsonic(object):
             thedic = None
             recurse_limit = 2
             thefields = obj._meta.get_all_field_names()
-            kwargs.update(self.deckeywords) # ??
-            
+            kwargs.update(self.deckeywords)  # ??
+
             recurse = kwargs.get('recurse', 0)
             incl = kwargs.get('include')
             sk = kwargs.get('skip')
             if incl:
-                if type(incl) == type([]):
+                if  isinstance(incl,list):
                     thefields.extend(incl)
                 else:
                     thefields.append(incl)
             if sk:
-                if type(sk) == type([]):
+                if  isinstance(sk,list):
                     for skipper in sk:
                         if skipper in thefields:
                             thefields.remove(skipper)
                 else:
                     if sk in thefields:
                         thefields.remove(sk)
-            
+
             ## first vanilla fields
             for f in thefields:
                 try:
@@ -69,21 +68,22 @@ class jsonic(object):
                 except AttributeError:
                     try:
                         thedic = getattr(obj, f)
-                    except AttributeError: pass
-                    except ObjectDoesNotExist: pass
+                    except AttributeError:
+                        pass
+                    except ObjectDoesNotExist:
+                        pass
                     else:
                         key = str(f)
-                except ObjectDoesNotExist: pass
+                except ObjectDoesNotExist:
+                    pass
                 else:
                     key = "%s_set" % f
-                
+
                 if key:
                     if hasattr(thedic, "__class__") and hasattr(thedic, "all"):
-                        if callable(thedic.all):
-                            if hasattr(thedic.all(), "json"):
-                                if recurse < recurse_limit:
-                                    kwargs['recurse'] = recurse + 1
-                                    dic[key] = thedic.all().json(**kwargs)
+                        if callable(thedic.all) and hasattr(thedic.all(), "json") and recurse < recurse_limit:
+                            kwargs['recurse'] = recurse + 1
+                            dic[key] = thedic.all().json(**kwargs)
                     elif hasattr(thedic, "json"):
                         if recurse < recurse_limit:
                             kwargs['recurse'] = recurse + 1
@@ -94,18 +94,20 @@ class jsonic(object):
                         except UnicodeEncodeError:
                             theuni = thedic.encode('utf-8')
                         dic[key] = theuni
-            
+
             ## now, do we have imagekit stuff in there?
-            if hasattr(obj, "_ik"):
-                if hasattr(obj, obj._ik.image_field):
-                    if hasattr(getattr(obj, obj._ik.image_field), 'size'):
-                        if getattr(obj, obj._ik.image_field):
-                            for ikaccessor in [getattr(obj, s.access_as) for s in obj._ik.specs]:
-                                key = ikaccessor.spec.access_as
-                                dic[key] = {
-                                    'url': ikaccessor.url,
-                                    'width': ikaccessor.width,
-                                    'height': ikaccessor.height,
-                                }
+            if obj.has_all_attributes():
+                for ikaccessor in [getattr(obj, s.access_as) for s in obj._ik.specs]:
+                    key = ikaccessor.spec.access_as
+                    dic[key] = {
+                        'url': ikaccessor.url,
+                        'width': ikaccessor.width,
+                        'height': ikaccessor.height,
+                    }
             return fn(obj, json=dic, **kwargs)
+
+        def has_all_attributes(self):
+            return hasattr(self, "_ik") and hasattr(self, self._ik.image_field) and hasattr(
+                getattr(self, self._ik.image_field), 'size') and getattr(self, self._ik.image_field)
+
         return jsoner
