@@ -7,31 +7,30 @@ def create_w(request, id):
         return HttpResponseRedirect("/")
 
 
+def chunks(objects, length):  # Defining method with a generator in a loop.
+    for i in xrange(0, len(objects), length):
+        yield objects[i:i + length]
+
 def map_reduce_task(request, ids):
     registers = get_registers(request)
     ids = get_ids(ids)
     if not registers:
         return HttpResponseRedirect("/")
-    else:
-        for register in registers:
-            if ids:  # Using optimized queries:
-                objects = register.objects.filter(id__in=ids).values_list("id", flat=True)
-            else:
-                objects = register.objects.all().values_list("id", flat=True)
 
-            t = 0
-            task_map = []
+    for register in registers:
+        if ids:  # Using optimized queries:
+            objects = register.objects.filter(id__in=ids).values_list("id", flat=True)
+        else:
+            objects = register.objects.all().values_list("id", flat=True)
+        t = 0
+        task_map = []
 
-            def chunks(objects, length):  # Defining method with a generator in a loop.
-                for i in xrange(0, len(objects), length):
-                    yield objects[i:i+length]
-
-            for chunk in chunks(objects, 20):
-                countdown = 5*t
-                t += 1
-                tasks_map.append(request_by_mapper(register, chunk, countdown, datetime.now()))
-        g = group(*tasks_map)
-        reduce_task = chain(g, create_request_by_reduce_async.s(tasks_map))()
+        for chunk in chunks(objects, length=20):
+            countdown = 5 * t
+            t += 1
+            tasks_map.append(request_by_mapper(register, chunk, countdown, datetime.now()))
+    g = group(*tasks_map)
+    reduce_task = chain(g, create_request_by_reduce_async.s(tasks_map))()
 
 
 @login_required
@@ -258,7 +257,7 @@ def create_payment(request):
             response = JsonResponse(post_params)
             return response
 
-        
+
 @staff_member_required
 def backup_to_csv(request):
     data = {}
@@ -337,7 +336,7 @@ def backup_to_csv(request):
         header = [
             'Policy_number', 'Policy_date', 'Name', 'Surname', 'E-mail',
             'Policy_start_date', 'Policy_expiry_date', 'Number_of_days',
-            'Crypto_exchange_name', 'Limit_BTC',  'Insured_Limit', 'Premium_paid_BTC',
+            'Crypto_exchange_name', 'Limit_BTC', 'Insured_Limit', 'Premium_paid_BTC',
             'User_paid', 'User_currency', 'Premium_rate_%',
             'Premium_payment_date', 'Outstanding_claim_BTC', 'Date_of_claim',
             'Paid_claim_BTC', 'Date_of_claim_payment',
@@ -355,6 +354,7 @@ def backup_to_csv(request):
                 return JsonResponse(responseData)
         except Exception:
             return response
+
 
 @csrf_protect
 @login_required
@@ -571,9 +571,9 @@ def dashboard(request):
                 "An error has occured while trying to get InsuranceCase.\
                 Reason: " + str(error))
         if start_dates[current_id]['start_date']:
-            days = expiration_dates[current_id]['expiration_date'] -\
-                timezone.make_aware(
-                datetime.datetime.now())
+            days = expiration_dates[current_id]['expiration_date'] - \
+                   timezone.make_aware(
+                       datetime.datetime.now())
             if policy_status_numerical_value == 2 and (
                     days < datetime.timedelta(days=10)):
                 expired_soon = True
@@ -590,29 +590,29 @@ def dashboard(request):
         context_policies = {
             'id': (policy_numbers[current_id])['id'],
             'policy_number':
-            context_policy_number,
+                context_policy_number,
             'insurance_period':
-            context_insurance_period,
+                context_insurance_period,
             'limit':
-            context_limit,
+                context_limit,
             'stock':
-            context_stock_exchange,
+                context_stock_exchange,
             'formatting_date':
-            context_date_of_formatting,
+                context_date_of_formatting,
             'amount_of_premium':
-            decimal.Decimal(context_fee).quantize(
-                decimal.Decimal('0.00000001'),
-                rounding=decimal.ROUND_DOWN).normalize(),
+                decimal.Decimal(context_fee).quantize(
+                    decimal.Decimal('0.00000001'),
+                    rounding=decimal.ROUND_DOWN).normalize(),
             'status':
-            policy_status_tag,
+                policy_status_tag,
             'numstatus':
-            policy_status_numerical_value,
+                policy_status_numerical_value,
             'sosexists':
-            sos,
+                sos,
             'expired_soon':
-            expired_soon,
+                expired_soon,
             'days_left':
-            days_left
+                days_left
         }
         logger.debug(context_policies)
         contextPolicy.append(context_policies)
@@ -634,9 +634,8 @@ def dashboard(request):
     # - Text
     # - Date
 
-
-# POLICY_STATUS_ACTIVE = 2
-# POLICY_STATUS_WAITING_FOR_PAYMENT = 4
+    # POLICY_STATUS_ACTIVE = 2
+    # POLICY_STATUS_WAITING_FOR_PAYMENT = 4
     stock_exchange_tags = set()
     for stock_exchange in stock_exchange_ids:
         current_stock_exchange = (CryptoExchange.objects.select_related(
