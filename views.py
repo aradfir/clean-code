@@ -26,12 +26,12 @@ def map_reduce_task(request, ids):
             objects = register.objects.filter(id__in=ids).values_list("id", flat=True)
         else:
             objects = register.objects.all().values_list("id", flat=True)
-        t = 0
+        task_count = 0
         task_map = []
 
         for chunk in chunks(objects, length=20):
-            countdown = 5 * t
-            t += 1
+            countdown = 5 * task_count
+            task_count += 1
             tasks_map.append(request_by_mapper(register, chunk, countdown, datetime.now()))
     g = group(*tasks_map)
     reduce_task = chain(g, create_request_by_reduce_async.s(tasks_map))()
@@ -48,11 +48,9 @@ def create_payment(request):
         currency = request.POST.get('currency')
         logger.debug(currency)
         policy = InsurancePolicy.objects.get(id=policy_id)
-        try:
-            payment = policy.payment_id
-            # if payment is NULL then exeption
-            payment.id
-        except Exception as e:
+        payment = policy.payment_id
+
+        if not payment:
             # everything is ok, new user
             # create payment with coinpayment
             post_params = {
@@ -304,14 +302,7 @@ def backup_to_csv(request):
         response_zip = zipfile.ZipFile(response, 'w')
         for key in datasets:
             if datasets[key] is True:
-                output = StringIO()
-                writer = csv.writer(output, dialect='excel')
-                query = data[key].objects.all().values()
-                if query.count() > 0:
-                    write_sorted_keys(query, writer)
-                else:
-                    writer.writerow(['NULL TABLE'])
-                response_zip.writestr("%s.csv" % key, output.getvalue())
+                add_key_to_response_zip(data, key, response_zip)
 
         out = StringIO()
         writer = csv.writer(out)
@@ -332,10 +323,21 @@ def backup_to_csv(request):
         response_zip.writestr("insurance_report.csv", out.getvalue())
         try:
             if not response_zip.testzip():
-                responseData = {'error': True, 'message': 'Nothing to backup'}
-                return JsonResponse(responseData)
+                response_data = {'error': True, 'message': 'Nothing to backup'}
+                return JsonResponse(response_data)
         except Exception:
             return response
+
+
+def add_key_to_response_zip(data, key, response_zip):
+    output = StringIO()
+    writer = csv.writer(output, dialect='excel')
+    query = data[key].objects.all().values()
+    if query.count() > 0:
+        write_sorted_keys(query, writer)
+    else:
+        writer.writerow(['NULL TABLE'])
+    response_zip.writestr("%s.csv" % key, output.getvalue())
 
 
 def write_sorted_keys(query, writer):
@@ -635,14 +637,10 @@ def dashboard(request):
     for stock_exchange in stock_exchange_tags:
         coverage_limit = (CryptoExchange.objects.select_related().filter(
             name=stock_exchange).values('coverage_limit')[0])['coverage_limit']
-        # current_stock_exchange = (CryptoExchange.objects.select_related(
-        # ).filter(id=stock_exchange['exchange']).values('name')[0])['name']
         current_stock_exchange = stock_exchange
         amount_of_holdings = 0
         for policy in contextPolicy:
-            if policy['stock'] == current_stock_exchange and (
-                    policy['numstatus'] == 1
-                    or policy['numstatus'] == 2):  # BEFORE 2
+            if policy['stock'] == current_stock_exchange and 1 <= policy['numstatus'] <= 2:
                 amount_of_holdings += float(policy['limit'])
         user_limit_information = {
             'stock_exchange': current_stock_exchange,
@@ -652,7 +650,7 @@ def dashboard(request):
         }
         user_limit_information_context.append(user_limit_information)
         logger.debug(contextPolicy)
-    # user_limit_information_context = set(user_limit_information_context)
+
     context = {
         'USER_LIMIT_INFO': user_limit_information_context,
         'POLICIES': contextPolicy,
